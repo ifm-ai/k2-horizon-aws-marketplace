@@ -41,7 +41,7 @@ Every supported instance type serves the same configuration: 32,768 tokens of to
 | `ml.g5.2xlarge` | 1 NVIDIA A10G | Yes | Yes |
 | `ml.g7e.2xlarge` | 1 NVIDIA RTX PRO 6000 | Yes | No |
 
-For a manual deployment, create a SageMaker model from the subscribed model package, then an endpoint configuration and an endpoint. For real-time endpoints, set `InferenceAmiVersion` to `al2023-ami-sagemaker-inference-gpu-4-1`. To fall back automatically when one instance type lacks capacity, list several supported types as instance pools in the endpoint configuration; the [helper](../examples/k2-horizon-fp8-sagemaker.py) shows how. Instance availability varies by AWS Region.
+For a manual deployment, create a SageMaker model from the subscribed model package, then an endpoint configuration and an endpoint. For real-time endpoints, set `InferenceAmiVersion` to `al2023-ami-sagemaker-inference-gpu-4-1`. To fall back automatically when one instance type lacks capacity, list several supported types as instance pools in the endpoint configuration; the [helper](../examples/k2-horizon-fp8-sagemaker.py) shows how. Not every type is offered in every AWS Region; the helper skips a type that SageMaker rejects in your Region.
 
 For batch transform, set `TransformAmiVersion` to `al2-ami-sagemaker-batch-gpu-535`; the default batch host can use an older GPU driver that this runtime does not support. Batch Transform has its own service quota, separate from endpoints, and new accounts often start at zero. Request the "<instance type> for transform job usage" quota before your first batch job; otherwise the job fails before the model starts.
 

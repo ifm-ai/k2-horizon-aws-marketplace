@@ -20,7 +20,7 @@ Every supported instance type serves a total context of 32,768 tokens with one a
 | `ml.g5.2xlarge` | 1 NVIDIA A10G | Yes | Yes |
 | `ml.g7e.2xlarge` | 1 NVIDIA RTX PRO 6000 | Yes | No |
 
-Use only instance types supported by the selected Marketplace version. The notebook lists them as SageMaker instance pools, so an endpoint falls back to the next type when one lacks capacity. Instance availability varies by AWS Region. The total context includes input, conversation history, tool definitions, generated reasoning and the final answer.
+Use only instance types supported by the selected Marketplace version. The notebook lists them as SageMaker instance pools, so an endpoint falls back to the next type when one lacks capacity. Not every type is offered in every AWS Region; the helper skips a type that SageMaker rejects in your Region and keeps the rest in order. The total context includes input, conversation history, tool definitions, generated reasoning and the final answer.
 
 ## Get started
 

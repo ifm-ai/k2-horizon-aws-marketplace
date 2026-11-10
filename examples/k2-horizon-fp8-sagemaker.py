@@ -150,10 +150,22 @@ def deploy(session, package_arn, role_arn, instance_types=None, name=None, resou
         variant={'VariantName':'AllTraffic','ModelName':name,'InitialInstanceCount':1,'InitialVariantWeight':1.0,
                  'InferenceAmiVersion':'al2023-ami-sagemaker-inference-gpu-4-1',
                  'ModelDataDownloadTimeoutInSeconds':1800,'ContainerStartupHealthCheckTimeoutInSeconds':900}
-        if len(types)==1:variant['InstanceType']=types[0]
-        else:variant['InstancePools']=[{'InstanceType':t,'Priority':i+1} for i,t in enumerate(types[:5])]
-        print('Instance types in fallback order:',', '.join(types),flush=True)
-        sm.create_endpoint_config(EndpointConfigName=resources['config'],ProductionVariants=[variant])
+        # Not every supported type is offered in every Region. SageMaker names a rejected type;
+        # drop it and retry with the remaining types in the same order.
+        while True:
+            variant.pop('InstanceType',None);variant.pop('InstancePools',None)
+            if len(types)==1:variant['InstanceType']=types[0]
+            else:variant['InstancePools']=[{'InstanceType':t,'Priority':i+1} for i,t in enumerate(types[:5])]
+            print('Instance types in fallback order:',', '.join(types),flush=True)
+            try:
+                sm.create_endpoint_config(EndpointConfigName=resources['config'],ProductionVariants=[variant])
+                break
+            except ClientError as error:
+                message=error.response['Error'].get('Message','')
+                rejected=[t for t in types if t in message]
+                if error.response['Error']['Code']!='ValidationException' or len(rejected)!=1 or len(types)==1:raise
+                print('Skipping',rejected[0],'here:',message,flush=True)
+                types=[t for t in types if t!=rejected[0]]
         resources['config_created']=True
         # Newly created configurations can take a short time to become visible.
         for attempt in range(12):
