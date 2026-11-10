@@ -2,7 +2,7 @@
 
 ## Model and training
 
-This offering uses [IFM/K2-Horizon-7B-FP8](https://huggingface.co/IFM/K2-Horizon-7B-FP8), revision `6cf6eab2661c549b1ecbe508d5e243a4dc843317`. K2 Horizon 7B is a dense, decoder-only language model. The checkpoint stores quantized linear weights in FP8, except for the output head. The NVIDIA L4 deployment uses FP8 weights with BF16 activations and KV cache.
+This offering uses [IFM/K2-Horizon-7B-FP8](https://huggingface.co/IFM/K2-Horizon-7B-FP8), revision `6cf6eab2661c549b1ecbe508d5e243a4dc843317`. K2 Horizon 7B is a dense, decoder-only language model. The checkpoint stores quantized linear weights in FP8, except for the output head. Every supported deployment uses FP8 weights with BF16 activations and KV cache.
 
 IFM reports approximately 20 trillion pretraining tokens per Horizon model, drawn from web, code, mathematics, science, multilingual and domain-specific material, including approximately 10 trillion synthetic tokens. Further training develops long-context, reasoning and agentic capabilities. Data and recipe availability varies with redistribution rights; datasets retain their own licenses. See the [training overview](https://ifm.ai/blog/k2/) and [model training-stage inventory](https://huggingface.co/IFM/K2-Horizon-7B#training-overview).
 
@@ -31,25 +31,19 @@ A single streaming arithmetic request on the 32K configuration returned the corr
 
 The request asked “Calculate 23 times 47. Return only the integer result.” It used high reasoning effort, temperature 1.0, top_p 0.95 and a 16,384-token generation allowance. The endpoint was already serving; startup time is excluded. The duration includes client/network overhead. This observation is a functional sample, not a latency percentile, throughput benchmark or service-level commitment. The [sample input and measurement](https://github.com/MBZUAI-IFM/k2-horizon-aws-marketplace/tree/main/samples/k2-horizon-7b-fp8) are provided with the deployment examples.
 
-## Limits and operating behavior
+## Supported deployments
 
-The notebook configures the 32K profile explicitly. For a manual real-time deployment, pass these values in the model container environment; selecting `ml.g6.2xlarge` by itself does not configure the context budget:
+Every supported instance type serves the same configuration: 32,768 tokens of total context and one active sequence. The model package selects these settings for the GPU it starts on, so you do not set container environment variables.
 
-```json
-{
-  "K2_SERVED_MODEL_NAME": "k2-horizon-7b",
-  "K2_MAX_MODEL_LEN": "32768",
-  "K2_MAX_NUM_SEQS": "1",
-  "K2_TENSOR_PARALLEL_SIZE": "1",
-  "K2_MAX_NUM_BATCHED_TOKENS": "512",
-  "K2_ENFORCE_EAGER": "1",
-  "K2_GPU_MEMORY_UTILIZATION": "0.90",
-  "VLLM_ENABLE_CUDA_COMPATIBILITY": "0",
-  "HF_HUB_OFFLINE": "1",
-  "TRANSFORMERS_OFFLINE": "1",
-  "HF_DATASETS_OFFLINE": "1"
-}
-```
+| Instance | GPU | Real-time | Batch |
+| --- | --- | :---: | :---: |
+| `ml.g6.2xlarge` | 1 NVIDIA L4 | Yes | Yes |
+| `ml.g5.2xlarge` | 1 NVIDIA A10G | Yes | Yes |
+| `ml.g7e.2xlarge` | 1 NVIDIA RTX PRO 6000 | Yes | No |
+
+For a manual deployment, create a SageMaker model from the subscribed model package, then an endpoint configuration and an endpoint. For real-time endpoints, set `InferenceAmiVersion` to `al2023-ami-sagemaker-inference-gpu-4-1`. To fall back automatically when one instance type lacks capacity, list several supported types as instance pools in the endpoint configuration; the [helper](../examples/k2-horizon-fp8-sagemaker.py) shows how. Instance availability varies by AWS Region.
+
+For batch transform, set `TransformAmiVersion` to `al2-ami-sagemaker-batch-gpu-535`; the default batch host can use an older GPU driver that this runtime does not support. Batch Transform has its own service quota, separate from endpoints, and new accounts often start at zero. Request the "<instance type> for transform job usage" quota before your first batch job; otherwise the job fails before the model starts.
 
 Use the deployment configurations listed in this repository and in the selected Marketplace version. The upstream model's native context window does not establish the supported context of a particular AWS deployment. Input, history, tool definitions, generated reasoning and final output share the configured context budget.
 

@@ -4,8 +4,6 @@ Deploy K2 Horizon models through AWS Marketplace and Amazon SageMaker AI.
 
 These examples deploy models in your AWS account and demonstrate chat, streaming, conversation history, tool calling and batch inference. You control the deployment and its lifecycle.
 
-**Availability:** Marketplace publication is in progress. Run the examples once the product and its regional model package are available to your account.
-
 ## Examples
 
 | Model | Notebook | Python helpers |
@@ -14,15 +12,19 @@ These examples deploy models in your AWS account and demonstrate chat, streaming
 
 The first example uses the [K2 Horizon 7B FP8 checkpoint](https://huggingface.co/IFM/K2-Horizon-7B-FP8). Its configurations are specific to that checkpoint; future model examples may use different precision, hardware and settings.
 
-| Configuration | Total context | SageMaker instance | GPUs |
-| --- | ---: | --- | --- |
-| `32k` | 32,768 tokens | `ml.g6.2xlarge` | 1 NVIDIA L4 |
+Every supported instance type serves a total context of 32,768 tokens with one active sequence, FP8 weights and BF16 activations and KV cache. The model package applies these settings for the GPU it starts on; you do not set container environment variables.
 
-Use only configurations supported by the selected Marketplace version. The total context includes input, conversation history, tool definitions, generated reasoning and the final answer. This example uses one active sequence, FP8 weights and BF16 activations and KV cache.
+| SageMaker instance | GPU | Real-time | Batch |
+| --- | --- | :---: | :---: |
+| `ml.g6.2xlarge` | 1 NVIDIA L4 | Yes | Yes |
+| `ml.g5.2xlarge` | 1 NVIDIA A10G | Yes | Yes |
+| `ml.g7e.2xlarge` | 1 NVIDIA RTX PRO 6000 | Yes | No |
+
+Use only instance types supported by the selected Marketplace version. The notebook lists them as SageMaker instance pools, so an endpoint falls back to the next type when one lacks capacity. Instance availability varies by AWS Region. The total context includes input, conversation history, tool definitions, generated reasoning and the final answer.
 
 ## Get started
 
-1. Subscribe to the K2 Horizon product in AWS Marketplace and accept its terms when available. Copy the model package ARN for your deployment Region from the product’s deployment instructions.
+1. Subscribe to the K2 Horizon product in AWS Marketplace and accept its terms. Copy the model package ARN for your deployment Region from the product’s deployment instructions. You create a SageMaker model from that package, then an endpoint configuration and an endpoint; the notebook does this for you.
 2. Open the notebook in an Amazon SageMaker AI notebook environment with Python 3. Install the dependencies in the notebook’s kernel:
 
    ```python
@@ -31,12 +33,14 @@ Use only configurations supported by the selected Marketplace version. The total
 
    Alternatively, clone this repository and install `requirements.txt` in your Python environment.
 
-3. Set `PACKAGE_ARN` in the setup cell, or provide the `K2_MODEL_PACKAGE_ARN` environment variable. The `32k` deployment profile applies the tested 32,768-token settings automatically.
+3. Set `PACKAGE_ARN` in the setup cell, or provide the `K2_MODEL_PACKAGE_ARN` environment variable. `INSTANCE_TYPES = None` uses every real-time type the package supports, in fallback order.
 4. Run the cells in order. The notebook deploys an endpoint, runs the inference examples and cleans up the resources it creates. The batch section runs a separate temporary job; set `RUN_BATCH=False` to skip it.
 
 The notebook uses the standard AWS credential chain and detects the SageMaker execution role. Outside SageMaker, configure AWS credentials and set `SAGEMAKER_EXECUTION_ROLE_ARN`. Never put access keys in the notebook.
 
-Your AWS identity needs permission to create, inspect, invoke and delete SageMaker resources, and to pass the execution role. The execution role needs access to the model package and the example S3 input/output prefix. Endpoint and Batch Transform quotas are separate, and deployment depends on regional instance availability.
+Your AWS identity needs permission to create, inspect, invoke and delete SageMaker resources, and to pass the execution role. The execution role needs access to the model package and the example S3 input/output prefix. Deployment depends on regional instance availability.
+
+**Batch host and quota:** for batch transform, set `TransformAmiVersion` to `al2-ami-sagemaker-batch-gpu-535` (the notebook does this); the default batch host can use an older GPU driver. Batch Transform has its own service quota, separate from endpoints, and new accounts often start at zero. Before your first batch job, request the "<instance type> for transform job usage" quota in Service Quotas; otherwise the job fails before the model starts.
 
 ## Costs and cleanup
 

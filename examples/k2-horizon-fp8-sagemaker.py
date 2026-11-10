@@ -116,35 +116,44 @@ def long_document_demo(session, endpoint):
     return response
 
 
-PROFILES = {'32k': {'instance_type': 'ml.g6.2xlarge', 'context_tokens': 32768, 'tensor_parallel': 1}}
+# Every supported instance type serves the same 32K context: the package applies its
+# tested settings for the GPU it starts on. No container environment variables are needed.
+CONTEXT_TOKENS = 32768
+# Real-time fallback order. Only types the subscribed package supports are used.
+INSTANCE_PREFERENCE = ['ml.g6.2xlarge', 'ml.g5.2xlarge', 'ml.g7e.2xlarge']
+BATCH_PREFERENCE = ['ml.g6.2xlarge', 'ml.g5.2xlarge']
 
 
-def deploy(session, package_arn, role_arn, profile='32k', name=None, resources=None):
-    if profile not in PROFILES:
-        raise ValueError('Choose a supported profile: ' + ', '.join(PROFILES))
-    recipe=PROFILES[profile]
+def choose(preference, supported, requested=None, kind='real-time'):
+    chosen=list(requested) if requested else [t for t in preference if t in supported]
+    if not chosen or any(t not in supported for t in chosen):
+        raise ValueError('Choose '+kind+' instance types supported by this package: '+', '.join(supported))
+    return chosen
+
+
+def deploy(session, package_arn, role_arn, instance_types=None, name=None, resources=None):
+    """Deploy a real-time endpoint. With several instance types, SageMaker instance pools
+    try them in order and fall back to the next type when one lacks capacity."""
     sm=session.client('sagemaker');package=sm.describe_model_package(ModelPackageName=package_arn)
     if package['ModelPackageStatus']!='Completed':raise RuntimeError('Package is not ready')
-    if recipe['instance_type'] not in package['InferenceSpecification']['SupportedRealtimeInferenceInstanceTypes']:
-        raise RuntimeError('Package does not support the selected instance type')
+    types=choose(INSTANCE_PREFERENCE,package['InferenceSpecification']['SupportedRealtimeInferenceInstanceTypes'],instance_types)
     name=name or 'k2-horizon-7b-fp8-example-'+uuid.uuid4().hex[:8]
     resources={} if resources is None else resources
     if resources:raise ValueError('Pass an empty resource dictionary for a new deployment')
-    resources.update(model=name,config=name+'-'+profile,endpoint=name+'-test')
+    resources.update(model=name,config=name+'-config',endpoint=name+'-test')
     print('Keep these names for cleanup:',json.dumps(resources),flush=True)
     try:
         sm.create_model(ModelName=name,ExecutionRoleArn=role_arn,EnableNetworkIsolation=True,
-            PrimaryContainer={'ModelPackageName':package_arn,'Environment':{'K2_SERVED_MODEL_NAME':'k2-horizon-7b',
-                'K2_TENSOR_PARALLEL_SIZE':str(recipe['tensor_parallel']),
-                'K2_MAX_MODEL_LEN':str(recipe['context_tokens']),'K2_MAX_NUM_SEQS':'1',
-                'K2_MAX_NUM_BATCHED_TOKENS':'512','K2_ENFORCE_EAGER':'1',
-                'K2_GPU_MEMORY_UTILIZATION':'0.90','VLLM_ENABLE_CUDA_COMPATIBILITY':'0',
-                'HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_DATASETS_OFFLINE':'1'}})
+            # The package selects its tested settings from the GPU; buyers pass no environment variables.
+            PrimaryContainer={'ModelPackageName':package_arn})
         resources['model_created']=True
-        sm.create_endpoint_config(EndpointConfigName=resources['config'],ProductionVariants=[{
-            'VariantName':'AllTraffic','ModelName':name,'InstanceType':recipe['instance_type'],'InitialInstanceCount':1,
-            'InitialVariantWeight':1.0,'InferenceAmiVersion':'al2023-ami-sagemaker-inference-gpu-4-1',
-            'ModelDataDownloadTimeoutInSeconds':1800,'ContainerStartupHealthCheckTimeoutInSeconds':900}])
+        variant={'VariantName':'AllTraffic','ModelName':name,'InitialInstanceCount':1,'InitialVariantWeight':1.0,
+                 'InferenceAmiVersion':'al2023-ami-sagemaker-inference-gpu-4-1',
+                 'ModelDataDownloadTimeoutInSeconds':1800,'ContainerStartupHealthCheckTimeoutInSeconds':900}
+        if len(types)==1:variant['InstanceType']=types[0]
+        else:variant['InstancePools']=[{'InstanceType':t,'Priority':i+1} for i,t in enumerate(types[:5])]
+        print('Instance types in fallback order:',', '.join(types),flush=True)
+        sm.create_endpoint_config(EndpointConfigName=resources['config'],ProductionVariants=[variant])
         resources['config_created']=True
         # Newly created configurations can take a short time to become visible.
         for attempt in range(12):
@@ -215,10 +224,16 @@ def cleanup(session, resources):
     print('Example resources cleaned up.',flush=True)
 
 
-def batch_demo(session, package_arn, role_arn, bucket, resources, name=None):
-    """Run one generated JSON request on a temporary 32K batch model."""
+def batch_demo(session, package_arn, role_arn, bucket, resources, name=None, instance_type=None):
+    """Run one generated JSON request on a temporary 32K batch model.
+
+    Batch Transform has its own service quota, separate from endpoints. New accounts
+    often start at zero: request the transform job quota for the instance type first."""
     if resources:raise ValueError('Pass an empty resource dictionary for a new batch job')
     sm=session.client('sagemaker');s3=session.client('s3')
+    package=sm.describe_model_package(ModelPackageName=package_arn)
+    instance_type=choose(BATCH_PREFERENCE,package['InferenceSpecification']['SupportedTransformInstanceTypes'],
+                         [instance_type] if instance_type else None,'batch')[0]
     name=name or 'k2-horizon-7b-fp8-batch-'+uuid.uuid4().hex[:8]
     prefix='k2-horizon-examples/'+name
     resources.update(model=name,job=name,bucket=bucket,input_key=prefix+'/input/request.json',
@@ -229,19 +244,20 @@ def batch_demo(session, package_arn, role_arn, bucket, resources, name=None):
         s3.put_object(Bucket=bucket,Key=resources['input_key'],Body=json.dumps(sample).encode(),ContentType='application/json')
         resources['input_created']=True
         sm.create_model(ModelName=name,ExecutionRoleArn=role_arn,EnableNetworkIsolation=True,
-            PrimaryContainer={'ModelPackageName':package_arn,'Environment':{
-                'K2_SERVED_MODEL_NAME':'k2-horizon-7b','K2_MAX_MODEL_LEN':'32768','K2_TENSOR_PARALLEL_SIZE':'1',
-                'K2_MAX_NUM_SEQS':'1','K2_MAX_NUM_BATCHED_TOKENS':'512','K2_ENFORCE_EAGER':'1',
-                'K2_GPU_MEMORY_UTILIZATION':'0.90','HF_HUB_OFFLINE':'1','TRANSFORMERS_OFFLINE':'1','HF_DATASETS_OFFLINE':'1',
-                'VLLM_ENABLE_CUDA_COMPATIBILITY':'1','VLLM_CUDA_COMPATIBILITY_PATH':'/usr/local/cuda-13.0/compat',
-                'LD_LIBRARY_PATH':'/usr/local/cuda-13.0/compat:/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib'}})
+            PrimaryContainer={'ModelPackageName':package_arn})
         resources['model_created']=True
-        sm.create_transform_job(TransformJobName=name,ModelName=name,MaxConcurrentTransforms=1,MaxPayloadInMB=1,
-            ModelClientConfig={'InvocationsTimeoutInSeconds':300,'InvocationsMaxRetries':0},
-            TransformInput={'DataSource':{'S3DataSource':{'S3DataType':'S3Prefix','S3Uri':'s3://'+bucket+'/'+resources['input_key']}},
-                            'ContentType':'application/json','CompressionType':'None','SplitType':'None'},
-            TransformOutput={'S3OutputPath':'s3://'+bucket+'/'+prefix+'/output/', 'Accept':'application/json','AssembleWith':'None'},
-            TransformResources={'InstanceType':'ml.g6.2xlarge','InstanceCount':1,'TransformAmiVersion':'al2-ami-sagemaker-batch-gpu-535'})
+        try:
+            sm.create_transform_job(TransformJobName=name,ModelName=name,MaxConcurrentTransforms=1,MaxPayloadInMB=1,
+                ModelClientConfig={'InvocationsTimeoutInSeconds':300,'InvocationsMaxRetries':0},
+                TransformInput={'DataSource':{'S3DataSource':{'S3DataType':'S3Prefix','S3Uri':'s3://'+bucket+'/'+resources['input_key']}},
+                                'ContentType':'application/json','CompressionType':'None','SplitType':'None'},
+                TransformOutput={'S3OutputPath':'s3://'+bucket+'/'+prefix+'/output/', 'Accept':'application/json','AssembleWith':'None'},
+                TransformResources={'InstanceType':instance_type,'InstanceCount':1,'TransformAmiVersion':'al2-ami-sagemaker-batch-gpu-535'})
+        except ClientError as error:
+            if error.response['Error']['Code']=='ResourceLimitExceeded':
+                raise RuntimeError('Your account has no Batch Transform quota for '+instance_type+'. Request the '
+                    '"'+instance_type+' for transform job usage" quota in Service Quotas, then rerun.') from error
+            raise
         resources['job_created']=True
         for _ in range(80):
             state=sm.describe_transform_job(TransformJobName=name)
