@@ -29,7 +29,7 @@ A single streaming arithmetic request on the 32K configuration returned the corr
 | Client-observed request duration | 3.968 seconds |
 | Concurrent sequences | 1 |
 
-The request asked “Calculate 23 times 47. Return only the integer result.” It used high reasoning effort, temperature 1.0, top_p 0.95 and a 16,384-token generation allowance. The endpoint was already serving; startup time is excluded. The duration includes client/network overhead. This observation is a functional sample, not a latency percentile, throughput benchmark or service-level commitment. The [sample input and measurement](https://github.com/MBZUAI-IFM/k2-horizon-aws-marketplace/tree/main/samples/k2-horizon-7b-fp8) are provided with the deployment examples.
+The request asked “Calculate 23 times 47. Return only the integer result.” It used high reasoning effort, temperature 1.0, top_p 0.95 and a 16,384-token generation allowance. The endpoint was already serving; startup time is excluded. The duration includes client/network overhead. This observation is a functional sample, not a latency percentile, throughput benchmark or service-level commitment. The [sample input and measurement](https://github.com/ifm-ai/k2-horizon-aws-marketplace/tree/main/samples/k2-horizon-7b-fp8) are provided with the deployment examples.
 
 ## Supported deployments
 
