@@ -38,7 +38,7 @@ Use only instance types supported by the selected Marketplace version. The noteb
 
 The notebook uses the standard AWS credential chain and detects the SageMaker execution role. Outside SageMaker, configure AWS credentials and set `SAGEMAKER_EXECUTION_ROLE_ARN`. Never put access keys in the notebook.
 
-Your AWS identity needs permission to create, inspect, invoke and delete SageMaker resources, and to pass the execution role. The execution role needs access to the model package and the example S3 input/output prefix. Deployment depends on regional instance availability.
+Your AWS identity needs permission to create, inspect, invoke and delete SageMaker resources, and to pass the execution role. The execution role needs access to the model package and the example S3 input/output prefix. Deployment depends on regional instance availability and on your account's endpoint quota for each instance type ("<instance type> for endpoint usage" in Service Quotas), which can be zero in new accounts. Instance pools fall back when a type lacks capacity, not when your account has no quota for it, so check the quota for the types you deploy, starting with the first in your list.
 
 **Batch host and quota:** for batch transform, set `TransformAmiVersion` to `al2-ami-sagemaker-batch-gpu-535` (the notebook does this); the default batch host can use an older GPU driver. Batch Transform has its own service quota, separate from endpoints, and new accounts often start at zero. Before your first batch job, request the "<instance type> for transform job usage" quota in Service Quotas; otherwise the job fails before the model starts.
 
